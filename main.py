@@ -1,7 +1,45 @@
 import re
 import sqlite3
+import tkinter as tk
+import logging
+import os
+import pandas as pd
+from tkinter import filedialog
 
 conn = sqlite3.connect('ftg.db')
+
+def main():
+    logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',  # Log format
+    handlers=[
+        logging.FileHandler("fatigue_processing.log"),  # Log to file
+        logging.StreamHandler()  # Log to console
+    ]
+)
+    # TKINTER setup
+    root = tk.Tk()
+    root.withdraw()
+    # Open file dialog
+    folder_path = filedialog.askdirectory(title="Select a folder")
+
+    # Check if a file was selected
+    if folder_path:
+        logging.info(f"Selected foder: {folder_path}")
+        
+        for file_name in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, file_name)
+
+            if os.path.isfile(file_path):
+                try:
+                    logging.info(f"Processing file {file_path}")
+                    process_file(file_path)
+                except Exception as e:
+                    logging.error(f"Error processing file {file_path}: {e}")
+        conn.close()
+    else:
+        logging.warn("No file selected.")
+    
 
 def extract_table_from_text(file_path, count=0):
     with open(file_path, 'r') as file:
@@ -49,7 +87,7 @@ def convert_to_number(string, search_char):
 
 def clean_extracted_tbl(tbl_data:list[str]):
     cleaned_tbl = []
-    allowed_pattern = r'\d{4}-\d{4}'
+    allowed_pattern = r'[a-zA-Z0-9]{4}-[a-zA-Z0-9]{4}' # r'\d{4}-\d{4}'
     for item in tbl_data:
         # if 'TUB' in item:
         #     continue
@@ -100,8 +138,64 @@ def insert_into_db(tbl_data:list[str], conn: sqlite3.Connection):
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', row)
     conn.commit()
-    print("Data inserted into ftg tbl")
-    conn.close()    
+    # conn.close()    
+
+def export_data(excel_path, conn: sqlite3.Connection):
+    try:
+        cursor = conn.cursor()
+
+        # SQL query to select all data from the 'ftg2' table
+        cursor.execute("SELECT * FROM ftg2")
+
+        # Fetch all rows from the executed query
+        rows = cursor.fetchall()
+
+        # Check if the table has any data
+        if rows:
+            # Get the column names from the cursor description
+            column_names = [description[0] for description in cursor.description]
+
+            # Create a pandas DataFrame from the fetched data
+            df = pd.DataFrame(rows, columns=column_names)
+
+            # Export the DataFrame to an Excel file
+            df.to_excel(excel_path, index=False)
+
+            print(f"Data successfully exported to {excel_path}")
+        else:
+            print("The table 'ftg2' is empty, no data to export.")
+
+    except sqlite3.Error as e:
+        logging.error(f"An error occurred: {e}")
+    # finally:
+    #     if conn:
+    #         conn.close()
+
+def delete_data(conn: sqlite3.Connection, condition=None):
+    try:
+        cursor = conn.cursor()
+
+        # If a condition is provided, delete based on the condition, otherwise delete all rows
+        if condition:
+            # Example: Delete based on a condition (e.g., delete rows where column1 = 'some_value')
+            query = f"DELETE FROM ftg2 WHERE {condition}"
+        else:
+            # Delete all rows from the table
+            query = "DELETE FROM ftg2"
+
+        # Execute the delete query
+        cursor.execute(query)
+
+        # Commit the changes to the database
+        conn.commit()
+
+        logging.debug(f"Data deleted successfully from table 'ftg2'. Condition: {condition if condition else 'None (all rows deleted)'}")
+
+    except sqlite3.Error as e:
+        logging.error(f"An error occurred: {e}")
+    # finally:
+    #     if conn:
+    #         conn.close()
 
 ####
 def test():
@@ -121,20 +215,24 @@ def test():
     str = convert_to_number(num,'-')
     print(float(str))
 
-def main():
+def process_file(file_path):
     # Usage
-    file_path = 'ftglst.full_f'
+    # file_path = 'ftglst.full_f'
     table_data = extract_table_from_text(file_path)
     cleaned_data = clean_extracted_tbl(table_data)
     
     print('creating tbl')
     create_tbl(conn)
-    print('tbl created...inserting data')
+    delete_data(conn)
+    logging.info('fatigue tbl created...inserting data')
     insert_into_db(cleaned_data, conn)
+    logging.info("Data inserted into ftg tbl")
     # Display the extracted table data
-    # for row in cleaned_data:
-    #     print(row)
+    file_name = os.path.basename(file_path) + ".xlsx"
+    export_data(f".\\output\\{file_name}", conn)
+    logging.info(f"{file_name} data exported to excel")
 
+                
 if __name__ == "__main__":
     main()
     # test()

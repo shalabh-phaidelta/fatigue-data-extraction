@@ -1,3 +1,7 @@
 *.db
 *.xlsx
 *.full_f
+*.spec
+*.log
+/build/
+/dist/
